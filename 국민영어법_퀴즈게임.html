@@ -270,9 +270,9 @@ body{position:relative}
 <div class="setting-row">
 <label>TTS 속도</label>
 <div class="speed-btns">
-<button class="speed-btn" data-speed="0.7" onclick="setSpeed(0.7,this)">느리게</button>
-<button class="speed-btn active" data-speed="1" onclick="setSpeed(1,this)">보통</button>
-<button class="speed-btn" data-speed="1.3" onclick="setSpeed(1.3,this)">빠르게</button>
+<button class="speed-btn" data-speed="0.8" onclick="setSpeed(0.8,this)">느리게</button>
+<button class="speed-btn active" data-speed="0.95" onclick="setSpeed(0.95,this)">보통</button>
+<button class="speed-btn" data-speed="1.15" onclick="setSpeed(1.15,this)">빠르게</button>
 </div>
 </div>
 <div class="setting-row">
@@ -554,7 +554,7 @@ let timerInterval=null;
 let timerStart=0;
 let isListening=false;
 let recognition=null;
-let ttsSpeed=1;
+let ttsSpeed=0.95;
 let maxTime=7;
 let audioCtx=null;
 
@@ -733,21 +733,54 @@ resetTimer();
 startTimer();
 }
 
+let cachedVoice=null;
+function getBestEnglishVoice(){
+if(cachedVoice)return cachedVoice;
+const voices=speechSynthesis.getVoices();
+if(!voices.length)return null;
+// Priority list: most natural-sounding voices first
+const preferredNames=[
+// macOS Sequoia+ premium Siri voices (very natural, 미국 영어)
+'Shelley (영어(미국))','Sandy (영어(미국))','Flo (영어(미국))','Reed (영어(미국))','Eddy (영어(미국))',
+// macOS classic premium voices
+'Ava','Zoe','Allison','Samantha','Alex',
+// Chrome/Android high quality
+'Google US English','Google UK English Female',
+// Microsoft Edge natural voices
+'Microsoft Aria','Microsoft Jenny','Microsoft Guy',
+// British/other accents as fallback
+'Daniel','Karen','Moira','Tessa'
+];
+// Only consider real English voices, exclude novelty ones
+const novelty=['Albert','Bad News','Bahh','Bells','Boing','Bubbles','Cellos','Good News','Jester','Junior','Organ','Ralph','Superstar','Trinoids','Whisper','Wobble','Zarvox','Fred','Kathy','Grandma','Grandpa','Rocko'];
+const enVoices=voices.filter(v=>v.lang.startsWith('en')&&!novelty.some(n=>v.name.includes(n)));
+// Try preferred voices first
+for(const name of preferredNames){
+const found=enVoices.find(v=>v.name===name||v.name.includes(name));
+if(found){cachedVoice=found;return found;}
+}
+// Fallback: any real en-US voice
+const usVoice=enVoices.find(v=>v.lang==='en-US');
+if(usVoice){cachedVoice=usVoice;return usVoice;}
+cachedVoice=enVoices[0]||null;
+return cachedVoice;
+}
+
 function playCurrentTTS(){
 const q=currentQuestions[currentQIndex];
 if(!q)return;
 // For sentences with " / ", pick the first part for TTS
 let text=q.en;
 if(text.includes(' / '))text=text.split(' / ')[0];
+// Clean up special characters for more natural reading
+text=text.replace(/~/g,' ').replace(/\.\.\.\./g,'...').replace(/\?!/g,'?');
 const u=new SpeechSynthesisUtterance(text);
 u.lang='en-US';
 u.rate=ttsSpeed;
-// Try to get a good English voice
-const voices=speechSynthesis.getVoices();
-const enVoice=voices.find(v=>v.lang==='en-US'&&v.name.includes('Samantha'))||
-voices.find(v=>v.lang==='en-US'&&!v.name.includes('Google'))||
-voices.find(v=>v.lang.startsWith('en'));
-if(enVoice)u.voice=enVoice;
+u.pitch=1.0;
+u.volume=1.0;
+const voice=getBestEnglishVoice();
+if(voice)u.voice=voice;
 speechSynthesis.cancel();
 speechSynthesis.speak(u);
 }
@@ -1084,11 +1117,15 @@ showScreen('modeScreen');
 
 // === INIT ===
 function init(){
-// Load voices
-if(speechSynthesis.onvoiceschanged!==undefined){
-speechSynthesis.onvoiceschanged=()=>{};
+// Load voices - wait for them to be available
+function loadVoices(){
+const v=speechSynthesis.getVoices();
+if(v.length>0){cachedVoice=null;getBestEnglishVoice();}
 }
-speechSynthesis.getVoices();
+loadVoices();
+if(speechSynthesis.onvoiceschanged!==undefined){
+speechSynthesis.onvoiceschanged=loadVoices;
+}
 buildLessonGrid();
 updateHomeStats();
 // Close settings on backdrop click
